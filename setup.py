@@ -19,7 +19,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-
+            'dss-generator=dss_generator.main:main',
         ],
     }
 )

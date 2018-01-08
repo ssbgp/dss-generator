@@ -1,5 +1,5 @@
 import uuid
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 
 class Simulation(NamedTuple):
@@ -10,6 +10,6 @@ class Simulation(NamedTuple):
     max_delay: int
     threshold: int
     stubs_file: str
-    seed: int
+    seed: Optional[int]
     enable_reportnodes: bool = False
     id: str = str(uuid.uuid4())
