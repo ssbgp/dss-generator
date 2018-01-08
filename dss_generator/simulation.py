@@ -11,5 +11,8 @@ class Simulation(NamedTuple):
     threshold: int
     stubs_file: str
     seed: Optional[int]
-    enable_reportnodes: bool = False
+    reportnodes: bool = False
     id: str = str(uuid.uuid4())
+
+    def as_dict(self) -> dict:
+        return dict(self._asdict())

@@ -44,7 +44,7 @@ def generate_simulations(topologies: List[Topology], destinations: List[int], re
                 threshold=threshold,
                 stubs_file=topology.stubs,
                 seed=None,
-                enable_reportnodes=enable_reportnodes,
+                reportnodes=enable_reportnodes,
                 id=str(uuid.uuid4())
             ))
 

@@ -1,6 +1,5 @@
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
 
 from pkg_resources import resource_filename
 
@@ -34,9 +33,6 @@ class Connection:
     the commit() method is called or when the connection is closed.
     """
 
-    # Datetime format used to store the simulation's finish timestamps
-    DATETIME_FORMAT = "%Y-%m-%d_%H:%M:%S"
-
     def __init__(self, connection: sqlite3.Connection):
         self._connection = connection
 
@@ -47,17 +43,6 @@ class Connection:
         # This allows provides access to each column by name
         self._connection.row_factory = sqlite3.Row
 
-    # region Insert Methods
-
-    def insert_simulator(self, id: str):
-        """
-        Inserts a new simulator in the database.
-
-        :param id: ID of the new simulator
-        :raise EntryExistsError: if the DB contains a simulator with the same ID
-        """
-        self._insert_in('simulator', id)
-
     def insert_simulation(self, simulation: Simulation):
         """
         Inserts a new simulation in the database.
@@ -66,7 +51,7 @@ class Connection:
         :raise EntryExistsError: if the DB contains a simulation with the
         same ID of the simulation to be inserted
         """
-        self._insert_in('simulation', *simulation)
+        self._insert_in('simulation', **simulation.as_dict())
 
     def insert_in_queue(self, simulation_id: str, priority: int):
         """
@@ -82,213 +67,9 @@ class Connection:
         :raise EntryExistsError: if a simulation with the same ID is already
         in the `queue` table
         """
-        self._insert_in('queue', simulation_id, priority)
-
-    def insert_in_running(self, simulation_id: str, simulator_id: str):
-        """
-        Inserts the simulation with the specified ID in the `running` table.
-        It associates the simulation with the ID of the simulator that was
-        assigned to execute it.
-
-        To insert a simulation in the `running` table, the simulation and the
-        simulator must have already been inserted in the DB.
-
-        :param simulation_id: ID of the simulation to insert in `running`
-        :param simulator_id:  ID of the simulator to execute the simulation
-        :raise EntryNotFoundError: if the DB does not contain a simulation
-        and/or a simulator with the specified IDs
-        :raise EntryExistsError: if a simulation with the same ID is already
-        in the `running` table
-        """
-        self._insert_in('running', simulation_id, simulator_id)
-
-    def insert_in_complete(self, simulation_id: str, simulator_id: str,
-                           finish_datetime: datetime):
-        """
-        Inserts the simulation with the specified ID in the `complete` table.
-        It associates the simulation with the ID of the simulator that
-        executed the simulation and the datetime at which it finished executing.
-
-        To insert a simulation in the `complete` table, the simulation and the
-        simulator must have already been inserted in the DB.
-
-        :param simulation_id:   ID of the simulation to insert in `complete`
-        :param simulator_id:    ID of the simulator to execute the simulation
-        :param finish_datetime: datetime when the simulation finished executing
-        :raise EntryNotFoundError: if the DB does not contain a simulation
-        and/or a simulator with the specified IDs
-        :raise EntryExistsError: if a simulation with the same ID is already
-        in the `complete` table
-        """
-        self._insert_in('complete', simulation_id, simulator_id,
-                        finish_datetime.strftime(self.DATETIME_FORMAT))
-
-    # endregion
-
-    # region Delete Methods
-
-    def delete_simulation(self, simulation_id: str):
-        """
-        Deletes a simulation from the DB. It deletes the simulation from all
-        tables of the DB.
-
-        If the DB does not contain a simulation with the specified ID,
-        then the method has no effect.
-
-        :param simulation_id: ID of the simulation to delete
-        """
-        self._delete_from("simulation", simulation_id)
-
-    def delete_from_queue(self, simulation_id: str):
-        """
-        Deletes a simulation from the `queue` table.
-
-        If the `queue` table does not contain a simulation with the specified
-        ID, then the method has no effect.
-
-        :param simulation_id: ID of the simulation to delete
-        """
-        self._delete_from("queue", simulation_id)
-
-    def delete_from_running(self, simulation_id: str):
-        """
-        Deletes a simulation from the `queue` table.
-
-        If the `queue` table does not contain a simulation with the specified
-        ID, then the method has no effect.
-
-        :param simulation_id: ID of the simulation to delete
-        """
-        self._delete_from("running", simulation_id)
-
-    # endregion
-
-    # region List Methods
-
-    # noinspection PyTypeChecker
-    def simulators(self):
-        """
-        Generator that returns the IDs of each simulator included in the
-        `simulator` table.
-        """
-        cursor = self._connection.cursor()
-        cursor.execute("SELECT * FROM simulator")
-
-        row = cursor.fetchone()
-        while row:
-            yield row['id']
-            row = cursor.fetchone()
-
-    # WARNING: Usually, we don't want to delete simulations from the
-    # `complete` table
-
-    # noinspection PyTypeChecker
-    def all_simulations(self):
-        """
-        Generator that returns each simulation that was inserted in the
-        database. This includes queued, running, and complete simulations.
-        """
-        cursor = self._connection.cursor()
-        cursor.execute("SELECT * FROM simulation")
-
-        row = cursor.fetchone()
-        while row:
-            yield _simulation_fromrow(row)
-            row = cursor.fetchone()
-
-    # noinspection PyTypeChecker
-    def queued_simulations(self):
-        """
-        Generator that returns each simulation in the `queue` table ordered
-        by priority: simulations with higher priority first. Along with the
-        simulation it also returns the corresponding priority.
-        """
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT * FROM simulation JOIN queue "
-            "ON simulation.id == queue.id;")
-
-        row = cursor.fetchone()
-        while row:
-            yield _simulation_fromrow(row), row['priority']
-            row = cursor.fetchone()
-
-    # noinspection PyTypeChecker
-    def running_simulations(self):
-        """
-        Generator that returns each simulation in the `running` table in no
-        particular order. Along with the simulation it also returns the
-        ID of the simulator executing the simulation.
-        """
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT * FROM simulation JOIN running "
-            "ON simulation.id == running.id;")
-
-        row = cursor.fetchone()
-        while row:
-            yield _simulation_fromrow(row), row['simulator_id']
-            row = cursor.fetchone()
-
-    # noinspection PyTypeChecker
-    def complete_simulations(self):
-        """
-        Generator that returns each simulation in the `complete` table in no
-        particular order. Along with the simulation it also returns the
-        ID of the simulator the executed the simulation and the finish datetime.
-        """
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT * FROM simulation JOIN complete "
-            "ON simulation.id == complete.id")
-
-        row = cursor.fetchone()
-        while row:
-            simulation = _simulation_fromrow(row)
-            finish_datetime = datetime.strptime(row['finish_datetime'],
-                                                self.DATETIME_FORMAT)
-
-            yield simulation, row['simulator_id'], finish_datetime
-            row = cursor.fetchone()
-
-    # endregion
-
-    def next_simulation(self) -> Simulation:
-        """
-        Returns the simulation in the queue with the highest priority. If
-        there are multiple simulations with the same priority value,
-        it returns one of them.
-
-        :return: simulation from the queue with the highest priority or None
-        if the `queue` table is empty
-        """
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT * FROM simulation JOIN queue ON simulation.id == queue.id "
-            "WHERE priority IN (SELECT max(priority) FROM queue);")
-
-        row = cursor.fetchone()
-        if row:
-            return _simulation_fromrow(row)
-
-    def running_simulation(self, simulator_id: str) -> Simulation:
-        """
-        Returns the simulation associated with the specified simulator in the
-        `running` table.
-
-        :param simulator_id: ID of simulator to obtain simulation for
-        :return: simulation associated with the specified simulator or None
-        if there is not one
-        """
-        cursor = self._connection.cursor()
-        cursor.execute(
-            "SELECT * "
-            "FROM simulation JOIN running ON simulation.id = running.id "
-            "WHERE simulator_id = ?", (simulator_id,))
-
-        row = cursor.fetchone()
-        if row:
-            return _simulation_fromrow(row)
+        self._insert_in('queue',
+                        id=simulation_id,
+                        priority=priority)
 
     def execute_script(self, fp):
         """ Executes a script from an opened file """
@@ -307,7 +88,7 @@ class Connection:
         """ Closes the connection. Afterwards, the connection cannot be used """
         self._connection.close()
 
-    def _insert_in(self, table: str, id, *values):
+    def _insert_in(self, table: str, **values):
         """
         Inserts an entry into a table with the specified name.
 
@@ -319,38 +100,22 @@ class Connection:
         database. This can be a simulation or a simulator.
         """
         try:
-            expected_values = ",".join("?" for i in range(len(values) + 1))
-            all_values = [id]
-            all_values.extend(values)
+            keys = ",".join(key for key, _ in values.items())
+            value_marks = ",".join("?" for i in values)
+            values = list(value for _, value in values.items())
 
-            self._connection.cursor().execute(
-                "INSERT INTO %s VALUES (%s)" % (table, expected_values),
-                all_values)
+            query = f"INSERT INTO {table} ({keys}) VALUES ({value_marks})"
+            self._connection.cursor().execute(query, values)
 
         except sqlite3.IntegrityError as error:
+
             if _is_foreign_key_constraint(error):
-                raise EntryNotFoundError("DB `%s` does not contain entry "
-                                         "with ID `%s`" % (table, id))
-
+                raise EntryNotFoundError()
             elif _is_unique_constraint(error):
-                raise EntryExistsError("Table `%s` already contains entry with "
-                                       "ID `%s`" % (table, id))
-
-            # Just re-raise any other errors
-            raise
-            # noinspection PyTypeChecker
-
-    def _delete_from(self, table: str, entry_id: str):
-        """
-        Deletes the entry with the specified ID from the table with the
-        specified name.
-
-        :param table:     name of the table to delete entry from
-        :param entry_id:  ID of the entry to delete
-        """
-        # Make sure that in all tables the id column is called `id`
-        self._connection.cursor().execute(
-            "DELETE FROM %s WHERE id=?" % table, (entry_id,))
+                raise EntryExistsError()
+            else:
+                # Just re-raise any other errors
+                raise
 
 
 class SimulationDB:
@@ -388,18 +153,3 @@ def _is_unique_constraint(error: sqlite3.IntegrityError):
 
 def _is_foreign_key_constraint(error: sqlite3.IntegrityError):
     return 'FOREIGN KEY constraint failed' in str(error)
-
-
-def _simulation_fromrow(row) -> Simulation:
-    return Simulation(
-        id=row['id'],
-        topology=row['topology'],
-        destination=row['destination'],
-        repetitions=row['repetitions'],
-        min_delay=row['min_delay'],
-        max_delay=row['max_delay'],
-        threshold=row['threshold'],
-        stubs_file=row['stubs_file'],
-        seed=row['seed'],
-        enable_reportnodes=True if row['reportnodes'] == 1 else False
-    )
