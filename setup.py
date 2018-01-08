@@ -11,6 +11,12 @@ setup(
 
     packages=find_packages(),
 
+    package_data={
+        'dss_generator': [
+            'tables.sql',
+        ],
+    },
+
     entry_points={
         'console_scripts': [
 
